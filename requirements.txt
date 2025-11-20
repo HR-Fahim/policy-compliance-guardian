@@ -1,0 +1,46 @@
+# Policy Compliance Guardian - Requirements
+
+# Core Dependencies
+# python>=3.10
+
+# Google Cloud & AI APIs
+google-genai>=0.3.0
+google-auth>=2.25.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.100.0
+google-cloud-storage>=2.13.0
+
+
+# Web Scraping & HTTP
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Email & Communication
+google-cloud-logging>=3.8.0
+
+# Data Processing
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# Utilities
+loguru>=0.7.2
+pytz>=2023.3
+
+# Development & Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+black>=23.12.0
+flake8>=6.1.0
+mypy>=1.7.0
+
+# Optional: For production deployment
+gunicorn>=21.2.0
+flask>=3.0.0
+
+# Optional: For OpenTelemetry observability (mentioned in architecture)
+# opentelemetry-api>=1.20.0
+# opentelemetry-sdk>=1.20.0
+# google-cloud-trace>=1.10.0

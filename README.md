@@ -30,16 +30,26 @@ This is an internal research/prototype project, not a production compliance tool
 - ✅ AI-powered **comparison agent**:
   - Detects whether there are material changes.
   - Summarizes what changed in plain language.
-  - Assigns a rough **criticality** level (low / medium / high).
-- ✅ **Notification generator**:
-  - Produces an email-style message: what changed, why it matters, suggested next steps.
+  - Assigns a rough **criticality** level (low / medium / high / critical).
+- ✅ **Notification agent** (NEW - Production Ready):
+  - Generates professional HTML and plain text emails
+  - Priority-based subject lines with emoji indicators
+  - Automatic change summary and action items
+  - Batch sending to multiple recipients
+  - History tracking and statistics
+  - Audit trail for compliance
+- ✅ **Email delivery** via Gmail API:
+  - Real Gmail integration with authentication
+  - Mock email service for testing (no API needed)
+  - Retry logic with exponential backoff
+  - Delivery tracking and status monitoring
 - ✅ Basic logging of each run (timestamp, URL, doc ID, has_change, criticality).
 
 **Out of scope for MVP**
 
 - Automatic editing of the Google Doc draft.
-- Multiple policy sources / drafts.
-- Full UI dashboard.
+- Multiple policy sources / drafts (v2 feature).
+- Full UI dashboard (planned).
 - Formal legal/compliance guarantees.
 
 ---
@@ -67,14 +77,28 @@ This is an internal research/prototype project, not a production compliance tool
     ```
 
 - **Notification Agent (`src/agents/notification_agent.py`)**  
-  Turns the change summary into an email-style body (and optional subject suggestion).
+  Complete notification management system that:
+  - Generates professional HTML and plain text emails
+  - Creates priority-based subject lines with visual indicators
+  - Tracks notification history and delivery status
+  - Supports batch notifications to multiple recipients
+  - Provides statistics and audit logging
+  
+- **Email Sender Service (`src/services/email_sender.py`)**  
+  Handles email delivery via Gmail API:
+  - Authentication (service account & OAuth2)
+  - Retry logic with exponential backoff
+  - Mock email sender for testing (no Gmail API needed)
+  - Email validation and status tracking
 
 - **Workflow Orchestrator (`src/main_workflow.py`)**  
-  Glue script that:
-  1. Fetches policy + draft.
-  2. Calls the comparison agent.
-  3. Logs results.
-  4. Prints or sends the notification email (in `--dry-run` mode by default).
+  Comprehensive workflow coordinator:
+  1. Fetches policy from external source or file
+  2. Fetches internal policy draft
+  3. Compares using ComparisonAgent
+  4. Sends notifications via NotificationAgent
+  5. Tracks results and maintains audit logs
+  6. Supports batch processing of multiple policies
 
 ---
 
@@ -91,12 +115,54 @@ This is an internal research/prototype project, not a production compliance tool
     - Permission to read the chosen Google Doc.
 - (Optional) Access to Gmail API or SMTP server if you want to send real emails.
 
-### Clone the Repository
+### Clone and Setup
 
 ```bash
 git clone https://github.com/wllnju/policy-compliance-guardian.git
 cd policy-compliance-guardian
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run quick test
+python quick_test.py
 ```
+
+### Quick Test (5 minutes)
+
+```python
+from src.agents.notification_agent import NotificationAgent, PolicyChange, CriticalityLevel
+from src.services.email_sender import MockEmailSender
+from datetime import datetime
+
+# Create email service (mock for testing)
+email_service = MockEmailSender()
+notification_agent = NotificationAgent(email_service=email_service)
+
+# Create policy change
+policy_change = PolicyChange(
+    policy_name="Safety Policy",
+    change_summary="Safety equipment requirements updated",
+    criticality=CriticalityLevel.HIGH,
+    old_content="Old safety requirements",
+    new_content="New safety requirements",
+    detected_changes=["Added PPE requirement", "Updated training hours"],
+    change_timestamp=datetime.now().isoformat(),
+    doc_url="https://docs.company.com/safety",
+    source_url="https://osha.gov/standards"
+)
+
+# Send notification
+result = notification_agent.send_notification(
+    change=policy_change,
+    recipient_email="admin@company.com",
+    dry_run=False
+)
+
+print(f"✓ Email sent: {result['status']}")
+```
+
+**For complete quick start guide, see [QUICKSTART.md](QUICKSTART.md)**
 
 ### repository top-level structure
 ```bash
