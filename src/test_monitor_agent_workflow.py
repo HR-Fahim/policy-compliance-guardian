@@ -14,7 +14,7 @@ from agents.monitor_agent import MonitorAgent, SNAPSHOT_DIR
 from dotenv import load_dotenv
 load_dotenv()  # this will read .env into os.environ
 
-APP_NAME = "policy_monitor_app"
+APP_NAME = "agents"
 USER_ID = "monitor_user"
 SESSION_ID = "monitor_session_1"
 
