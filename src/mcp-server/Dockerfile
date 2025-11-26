@@ -12,7 +12,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
 # Install dependencies
-RUN uv sync --locked
+RUN uv lock && uv sync --locked
 
 EXPOSE $PORT
 
