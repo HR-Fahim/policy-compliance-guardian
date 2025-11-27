@@ -1,0 +1,17 @@
+{
+  "updates_available": true,
+  "summary": "New updates found in FAA Section 4.3. Policy changes detected.",
+  "items_changed": [
+    {
+      "source_url": "https://official.gov/policy",
+      "section": "4.3",
+      "change_type": "modified",
+      "old_text": "Old policy text...",
+      "new_text": "Updated policy text..."
+    }
+  ],
+  "recommended_actions": [
+    "Update internal draft section 4.3",
+    "Notify compliance manager"
+  ]
+}

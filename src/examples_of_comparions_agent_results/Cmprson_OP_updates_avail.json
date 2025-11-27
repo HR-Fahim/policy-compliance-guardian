@@ -1,0 +1,14 @@
+{
+  "updates_available": true,
+  "changes": [
+    {
+      "type": "policy_change",
+      "description": "Section 2.1 updated: new compliance window",
+      "source_url": "https://gov.example.com/policy-update",
+      "impact": "critical",
+      "changed_sections": ["2.1"]
+    }
+  ],
+  "policy_name": "Local Events Permit",
+  "source_snapshot_link": "https://drive.google.com/..."
+}

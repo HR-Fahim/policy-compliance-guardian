@@ -19,3 +19,14 @@ tmp/
 .DS_Store
 COMPLIANCE_GUARDIAN_LOG.*
 *.db
+    
+adk.env
+adk project/.env
+
+adk project/
+__pypackages__/
+.ipynb_checkpoints/
+*.sqlite3
+*.sqlite    
+*.bak
+*.swp
