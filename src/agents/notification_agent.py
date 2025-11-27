@@ -1,15 +1,27 @@
-# file: notification_agent.py
 
+# notification_agent.py
 """
-Notification Agent for ADK-Python
-This agent monitors the output of `comparison_agent` using the A2A protocol.
-If updates are detected, it sends an email via Gmail. Otherwise, it does nothing.
-
-Dependencies:
-- google-adk (pip install google-adk)
-- google-api-python-client (pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib)
+Notification Agent (Gmail + optional Google Docs update)
+- Reads comparison_result JSON (from Comparison Agent).
+- If updates exist -> sends email to recipients, optionally updates a Google Doc changelog.
+- Designed as an ADK tool (returns dicts with status keys).
 """
 
+import time
+import logging
+from typing import List, Dict, Optional
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import base64
+
+# Google APIs
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+# Retry helper
+from functools import wraps
+import random
 
 
 import os
@@ -40,11 +52,34 @@ from google.genai import types
 from google.adk.models.google_llm import Gemini
 from google.adk.agents import Agent, SequentialAgent, ParallelAgent, LoopAgent
 
+# for sending email
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
+
+# Configure logging
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("notification_agent")
 # CONFIGURATION
 APP_NAME = "notification_agent"
 USER_ID = "user_default"
 SESSION_ID = "session_01"
+
+
+# ---------- CONFIG (read from env vars) ----------
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")  # required for unattended send
+GMAIL_SENDER = os.getenv("GMAIL_SENDER") or "no-reply@example.com"  # Display From
+GMAIL_SENDER_ACCOUNT = os.getenv("GMAIL_SENDER_ACCOUNT")  # actual Gmail account to send as (e.g., "bot@company.com")
+# Optional: If you prefer service-account + domain-wide-delegation, set USE_SA_DWD=1 and configure below (not implemented here)
+USE_DOCS_UPDATE = os.getenv("USE_DOCS_UPDATE", "true").lower() in ("1", "true", "yes")
+DOC_TO_UPDATE_ID = os.getenv("DOC_TO_UPDATE_ID")  # Google Doc id to append changelog to (optional)
+# Scope constants
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+DOCS_SCOPES = ["https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/drive.file"]
+
 
 
 
@@ -57,57 +92,48 @@ retry_config = types.HttpRetryOptions(
 
 
 
-# -----------------------------
-# Step 1: Configure Gmail API
-# -----------------------------
-# 1. Go to Google Cloud Console > APIs & Services > Credentials.
-# 2. Create OAuth Client ID for "Desktop app".
-# 3. Download credentials.json and place in workspace root.
-# 4. Enable Gmail API.
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
-
-def gmail_service():
-    """Authenticate and return Gmail API service."""
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token_file:
-            token_file.write(creds.to_json())
-    return build('gmail', 'v1', credentials=creds)
-
-def send_email(to_address: str, subject: str, body: str):
-    """Send an email via Gmail."""
-    service = gmail_service()
-    from email.mime.text import MIMEText
-    import base64
-
-    message = MIMEText(body)
-    message['to'] = to_address
-    message['subject'] = subject
-    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    service.users().messages().send(userId='me', body={'raw': raw}).execute()
-
-
-# -----------------------------
-# Step 2: MCP Tool to check updates
-# -----------------------------
-def check_for_updates(comparison_output):
+def send_notification_email(to_email: str, subject: str, body: str) -> dict:
     """
-    Tool for Notification Agent:
-    - Receives comparison_agent output
-    - Returns True if updates exist, False otherwise
-    """
-    updates_exist = comparison_output.get("updates_available", False)
-    return updates_exist
+    Sends an email notification using Gmail SMTP.
+    
+    Requirements:
+    - Gmail address
+    - App Password (recommended for security)
 
-check_updates_tool = function_tool.FunctionTool(check_for_updates)
+    Args:
+        to_email: Recipient email address.
+        subject: Email subject line.
+        body: Email body (plain text).
+
+    Returns:
+        {"status": "success"} on success
+        {"status": "error", "error_message": "..."} on failure
+    """
+
+    try:
+        # You MUST replace these with your own credentials
+        gmail_user = "YOUR_GMAIL@gmail.com"
+        gmail_app_password = "YOUR_APP_PASSWORD"
+
+        msg = MIMEMultipart()
+        msg["From"] = gmail_user
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(gmail_user, gmail_app_password)
+        server.send_message(msg)
+        server.quit()
+
+        return {"status": "success"}
+
+    except Exception as e:
+        return {"status": "error", "error_message": str(e)}
+
+
+
 
 
 # -----------------------------
@@ -115,49 +141,36 @@ check_updates_tool = function_tool.FunctionTool(check_for_updates)
 # -----------------------------
 notification_agent = Agent(
     name="NotificationAgent",
-    model="gemini-2.5-flash-lite",  # This agent does not need LLM reasoning, uses MCP tool
+    model=Gemini(
+        model="gemini-2.5-flash-lite",   # This agent does not need LLM reasoning, uses MCP tool
+        retry_options=retry_config
+    ),  
     instruction="""
-    1. Receive output from comparison_agent via A2A protocol.
-    2. Use MCP tool `check_for_updates` to determine if updates exist.
-    3. If updates exist, send a Gmail notification to the configured address.
-    4. If no updates, do nothing.
+    You are the notification_agent.
+
+    Your job is to:
+    1. Read the comparison results from {comparison_result_json}.
+    2. Determine whether updates are available.
+    3. If "updates_available" is false:
+        - Respond with: "No updates. No notifications sent."
+        - Do nothing else.
+    4. If "updates_available" is true:
+        - Generate a clear professional summary of:
+            * What has changed
+            * Source URLs
+            * Sections updated
+            * Old vs new content overview
+        - Call the send_notification_email() tool to notify the user.
+        - Prepare updated internal draft text using the changes.
+        - Return the updated draft along with the summary.
+
+    Your final response must contain:
+    - A summary of what changed (human-readable)
+    - A flag "notification_sent": true/false
+    - Updated draft content (only if updates exist)
     """,
-    tools=[check_updates_tool],
+    tools= [FunctionTool(send_notification_email)],
     output_key="notification_status",
 )
 
-# -----------------------------
-# Step 4: MCP Setup for A2A
-# -----------------------------
-mcp = MCP(agent=notification_agent) #############################################-------------------------- error here
 
-async def run_notification_agent(comparison_output: dict, notify_to: str):
-    """
-    Entry point to run the Notification Agent.
-    - comparison_output: dict returned by comparison_agent
-      Must include key: 'updates_available': True/False
-    - notify_to: Gmail address to send notification
-    """
-    # Step 1: Check updates using MCP
-    updates = mcp.run_tool(check_updates_tool, comparison_output)
-    
-    # Step 2: Send Gmail if updates exist
-    if updates:
-        send_email(
-            to_address=notify_to,
-            subject="Updates Detected by comparison_agent",
-            body="The comparison_agent detected updates. Please review."
-        )
-        return "Notification sent."
-    else:
-        return "No updates; no notification sent."
-
-
-# -----------------------------
-# Usage Example
-# -----------------------------
-if __name__ == "__main__":
-    import asyncio
-    test_output = {"updates_available": True}  # Example from comparison_agent
-    email_address = "kamalkheil93@gmail.com"
-    asyncio.run(run_notification_agent(test_output, email_address))
