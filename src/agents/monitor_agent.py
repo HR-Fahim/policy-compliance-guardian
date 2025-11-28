@@ -123,7 +123,7 @@ class MonitorAgent:
             user_dir.mkdir(parents=True)
 
         # File name: <email>.monitored_file.<timestamp>.txt
-        out_name = f"{DEFAULT_USER_EMAIL}.monitored_file.{timestamp}.txt"
+        out_name = f"raw_monitored_file.{timestamp}.txt"
         out_path = user_dir / out_name
 
         # Write updated content
@@ -141,7 +141,7 @@ class MonitorAgent:
             user_dir.mkdir(parents=True)
 
         # File name
-        snapshot_name = f"{DEFAULT_USER_EMAIL}.monitored_file.{timestamp}.json"
+        snapshot_name = f"monitored_file.{timestamp}.json"
         snapshot_path = user_dir / snapshot_name
 
         snapshot = {
@@ -179,7 +179,7 @@ class MonitorAgent:
         )
 
 # ---------------- Convenience runner ----------------
-async def run_monitor_once(policy_path: str = DEFAULT_POLICY_PATH) -> str:
+async def monitor(policy_path: str = DEFAULT_POLICY_PATH) -> str:
     policy_file = Path(policy_path)
     if not policy_file.exists():
         raise FileNotFoundError(f"Policy file not found: {policy_file.resolve()}")
@@ -251,7 +251,7 @@ async def run_monitor_once(policy_path: str = DEFAULT_POLICY_PATH) -> str:
         user_dir.mkdir(parents=True)
 
     # File path
-    text_snapshot_file = user_dir / f"{DEFAULT_USER_EMAIL}.monitored_file_summary.{timestamp}.txt"
+    text_snapshot_file = user_dir / f"monitored_file_summary.{timestamp}.txt"
 
     # Write file
     text_snapshot_file.write_text(final_answer, encoding="utf-8")
@@ -262,7 +262,7 @@ async def run_monitor_once(policy_path: str = DEFAULT_POLICY_PATH) -> str:
 if __name__ == "__main__":
     # CLI: run monitor once when invoked directly
     try:
-        output = asyncio.run(run_monitor_once())
+        output = asyncio.run(monitor())
         print(output)
     except Exception as exc:
         print("Error running monitor:", exc)

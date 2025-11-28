@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Core agent + configuration
-from agents.monitor_agent import run_monitor_once
+from agents.monitor_agent import monitor
 
 load_dotenv()
 app = FastAPI()
@@ -75,7 +75,7 @@ async def mcp_handler(request: Request):
     # Tool call: run monitor once
     if req.method == "tool/monitord-file":
         try:
-            snapshot = await run_monitor_once(return_json=True)
+            snapshot = await monitor(return_json=True)
             return MCPResponse(id=req.id, result=snapshot)
         except Exception as e:
             return MCPResponse(id=req.id, error={"message": str(e)})
@@ -93,7 +93,7 @@ async def mcp_handler(request: Request):
 @app.get("/monitored-file")
 async def run_monitor():
     try:
-        return await run_monitor_once(return_json=True)
+        return await monitor(return_json=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -107,19 +107,19 @@ async def get_latest_snapshot(user_email: str):
     if user_email != DEFAULT_USER_EMAIL:
         raise HTTPException(status_code=404, detail="not found")
 
-    user_dir = Path(SNAPSHOT_DIR) / f"{DEFAULT_USER_EMAIL}_monitored_file"
+    user_dir = Path(SNAPSHOT_DIR) / f"{user_email}_monitored_file"
     if not user_dir.exists():
         raise HTTPException(status_code=404, detail="not found")
 
     # Match files like: email.monitored_file.YYYYMMDD_HHMMSS.json
-    json_files = list(user_dir.glob(f"{DEFAULT_USER_EMAIL}.monitored_file.*.json"))
+    json_files = list(user_dir.glob(f"monitored_file.*.json"))
     if not json_files:
         raise HTTPException(status_code=404, detail="not found")
 
     # Extract timestamp from filename to sort correctly
     def extract_timestamp(path: Path) -> str:
-        # filename format: <email>.monitored_file.<timestamp>.json
-        return path.stem.split(".")[-1]  # last segment before .json
+        # filename format: monitored_file.<timestamp>.json
+        return path.stem.split(".")[1] # returns <timestamp>
 
     latest_file = max(json_files, key=lambda f: extract_timestamp(f))
 
