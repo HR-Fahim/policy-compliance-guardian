@@ -1,27 +1,33 @@
-# mcp_server.py
 import os
 import sys
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import uvicorn
-import uuid
-import time
 import json
+from pathlib import Path
 
-# Add src folder to Python path
+# Add src/ to module path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Core agent + configuration
 from agents.monitor_agent import run_monitor_once
 
 load_dotenv()
-
 app = FastAPI()
 
+# Directory to store snapshots and updated files
+SNAPSHOT_DIR = Path(__file__).parent.parent /"temp/data/monitored_snapshots"
+# print("Snapshot directory:", SNAPSHOT_DIR)
 
-# ================================================================
-# MCP MODELS
-# ================================================================
+# Default user email from environment
+DEFAULT_USER_EMAIL = os.getenv("USER_EMAIL")
+user_email = DEFAULT_USER_EMAIL
 
+
+# ------------------------------------------------------------
+# MCP Models
+# ------------------------------------------------------------
 class MCPRequest(BaseModel):
     id: str | int | None = None
     method: str
@@ -36,17 +42,17 @@ class MCPResponse(BaseModel):
     jsonrpc: str = "2.0"
 
 
-# ================================================================
-# HEALTH CHECK
-# ================================================================
+# ------------------------------------------------------------
+# Health check
+# ------------------------------------------------------------
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-# ================================================================
-# MCP MAIN ENDPOINT
-# ================================================================
+# ------------------------------------------------------------
+# MCP Handler
+# ------------------------------------------------------------
 @app.post("/mcp")
 async def mcp_handler(request: Request):
     payload = await request.json()
@@ -56,42 +62,35 @@ async def mcp_handler(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid MCP request format")
 
-    # Basic MCP handshake (required)
+    # Standard MCP handshake
     if req.method == "initialize":
         return MCPResponse(
             id=req.id,
             result={
-                "capabilities": {
-                    "tool.use": True,
-                    "text.generate": False,
-                    "resource.fetch": False,
-                },
-                "serverInfo": {
-                    "name": "PolicyComplianceGuardian-MCP",
-                    "version": "1.0.0",
-                }
+                "capabilities": {"tool.use": True},
+                "serverInfo": {"name": "PolicyComplianceGuardian-MCP", "version": "1.0.0"},
             }
         )
 
-    # Example tool call
-    if req.method == "tool/run-monitor":
+    # Tool call: run monitor once
+    if req.method == "tool/monitord-file":
         try:
             snapshot = await run_monitor_once(return_json=True)
             return MCPResponse(id=req.id, result=snapshot)
         except Exception as e:
             return MCPResponse(id=req.id, error={"message": str(e)})
 
-    # Unhandled MCP method
+    # Unknown method
     return MCPResponse(
         id=req.id,
         error={"message": f"Unknown MCP method '{req.method}'"}
     )
 
 
-# ================================================================
-# DIRECT FASTAPI ENDPOINT FOR DEBUGGING
-# ================================================================
-@app.get("/run-monitor")
+# ------------------------------------------------------------
+# Direct run endpoint for debug/testing
+# ------------------------------------------------------------
+@app.get("/monitored-file")
 async def run_monitor():
     try:
         return await run_monitor_once(return_json=True)
@@ -99,9 +98,41 @@ async def run_monitor():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ================================================================
-# SERVER ENTRYPOINT
-# ================================================================
+# ------------------------------------------------------------
+# Returns latest JSON snapshot for this user
+# GET /{default_user_email}/monitored-file
+# ------------------------------------------------------------
+@app.get("/{user_email}/monitored-file")
+async def get_latest_snapshot(user_email: str):
+    if user_email != DEFAULT_USER_EMAIL:
+        raise HTTPException(status_code=404, detail="not found")
+
+    user_dir = Path(SNAPSHOT_DIR) / f"{DEFAULT_USER_EMAIL}_monitored_file"
+    if not user_dir.exists():
+        raise HTTPException(status_code=404, detail="not found")
+
+    # Match files like: email.monitored_file.YYYYMMDD_HHMMSS.json
+    json_files = list(user_dir.glob(f"{DEFAULT_USER_EMAIL}.monitored_file.*.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="not found")
+
+    # Extract timestamp from filename to sort correctly
+    def extract_timestamp(path: Path) -> str:
+        # filename format: <email>.monitored_file.<timestamp>.json
+        return path.stem.split(".")[-1]  # last segment before .json
+
+    latest_file = max(json_files, key=lambda f: extract_timestamp(f))
+
+    try:
+        content = json.loads(latest_file.read_text(encoding="utf-8"))
+        return {"file": latest_file.name, "data": content}
+    except Exception:
+        raise HTTPException(status_code=500, detail="failed to read snapshot")
+
+
+# ------------------------------------------------------------
+# Entrypoint
+# ------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
     uvicorn.run("mcp_server:app", host="0.0.0.0", port=port)

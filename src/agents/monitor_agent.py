@@ -34,8 +34,12 @@ SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 APP_NAME = "monitor_app"
 USER_ID = "monitor_user"
-SESSION_ID = "monitor_session"
+SESSION_ID = "monitor_session_0"
 DEFAULT_POLICY_PATH = Path(__file__).parent.parent /"temp/data/fake_policy.txt"
+
+DEFAULT_USER_EMAIL = os.getenv("USER_EMAIL")
+
+print(f"MonitorAgent initialized with USER_EMAIL={DEFAULT_USER_EMAIL}")
 
 
 class MonitorAgent:
@@ -110,19 +114,35 @@ class MonitorAgent:
 
     @staticmethod
     def save_updated_file(file_path: str, updated_text: str) -> str:
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        base = Path(file_path).name.replace(os.sep, "_")
-        out_name = f"{base}.{timestamp}.txt"
-        out_path = SNAPSHOT_DIR / out_name
+        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+        user_dir = SNAPSHOT_DIR / f"{DEFAULT_USER_EMAIL}_monitored_file"
+
+        # Create the directory only if it does not already exist
+        if not user_dir.exists():
+            user_dir.mkdir(parents=True)
+
+        # File name: <email>.monitored_file.<timestamp>.txt
+        out_name = f"{DEFAULT_USER_EMAIL}.monitored_file.{timestamp}.txt"
+        out_path = user_dir / out_name
+
+        # Write updated content
         out_path.write_text(updated_text, encoding="utf-8")
         return str(out_path)
 
     @staticmethod
     def save_snapshot(file_path: str, file_content: str, search_result: Dict[str, Any]) -> str:
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        base = Path(file_path).name.replace(os.sep, "_")
-        snapshot_name = f"{base}.{timestamp}.json"
-        snapshot_path = SNAPSHOT_DIR / snapshot_name
+        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+        user_dir = SNAPSHOT_DIR / f"{DEFAULT_USER_EMAIL}_monitored_file"
+
+        # Create the directory only if it does not already exist
+        if not user_dir.exists():
+            user_dir.mkdir(parents=True)
+
+        # File name
+        snapshot_name = f"{DEFAULT_USER_EMAIL}.monitored_file.{timestamp}.json"
+        snapshot_path = user_dir / snapshot_name
 
         snapshot = {
             "timestamp_utc": timestamp,
@@ -131,7 +151,10 @@ class MonitorAgent:
             "search_result": search_result,
         }
 
-        snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        snapshot_path.write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
         return str(snapshot_path)
 
     # ---------------- Helpers ----------------
@@ -219,10 +242,20 @@ async def run_monitor_once(policy_path: str = DEFAULT_POLICY_PATH) -> str:
             final_answer = "[monitor_agent] No final text or tool result received."
 
     # Save a simple text snapshot with the final answer
-    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    text_snapshot_file = SNAPSHOT_DIR / f"policy_monitor_{timestamp}.txt"
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+    user_dir = SNAPSHOT_DIR / f"{DEFAULT_USER_EMAIL}_monitored_file"
+
+    # Create the directory only if it does not already exist
+    if not user_dir.exists():
+        user_dir.mkdir(parents=True)
+
+    # File path
+    text_snapshot_file = user_dir / f"{DEFAULT_USER_EMAIL}.monitored_file_summary.{timestamp}.txt"
+
+    # Write file
     text_snapshot_file.write_text(final_answer, encoding="utf-8")
+
 
     return final_answer
 
