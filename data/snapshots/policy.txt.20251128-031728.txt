@@ -1,0 +1,15 @@
+Google Transparency Policy v9.3
+
+Effective Date: 1 March 2025
+
+Section 1. User Data  
+Google may occasionally collect data from your browser cache, including but not limited to:  
+- Information related to your session
+- Usage statistics
+- User identifiers
+
+Section 2. Service Availability  
+All Google services will remain online except during scheduled maintenance. Scheduled maintenance will be announced with reasonable notice.
+
+Section 3. Compliance  
+This policy complies with ISO 9001 and GDPR.
