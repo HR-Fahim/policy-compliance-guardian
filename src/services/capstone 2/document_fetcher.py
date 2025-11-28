@@ -18,7 +18,7 @@ try:
     from googleapiclient.discovery import build
     from google.auth.transport.requests import Request
 except ImportError as e:
-    print(f"CRITICAL ERROR: Missing dependency. {e}")
+    print(f"CRITICAL ERROR: Missing dependency {e}")
     print("Please run: pip install flask google-auth google-auth-oauthlib google-api-python-client werkzeug requests")
     exit(1)
 
@@ -200,4 +200,5 @@ def stop_watcher():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
     print(f"--- A2A Government Monitor Online on Port {port} ---")
+
     app.run(port=port, debug=True)
