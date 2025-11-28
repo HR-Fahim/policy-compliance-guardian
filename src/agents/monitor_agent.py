@@ -4,35 +4,78 @@ import os
 import json
 import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import google_search
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
-# Directory to store JSON/text snapshots
+#from dotenv import load_dotenv
+#load_dotenv()  # this will read .env into os.environ
+
+# Directory to store updated text files and JSON snapshots
 SNAPSHOT_DIR = Path("data/snapshots")
 SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
+APP_NAME = "agents"
+DEFAULT_USER_ID = "monitor_user"
+DEFAULT_SESSION_ID = "monitor_session_1"
 
+
+# ----------------------------------------------------------------------
+# Local helpers: saving updated text and snapshot (always done in Python)
+# ----------------------------------------------------------------------
+def _save_updated_file(file_path: str, updated_text: str) -> str:
+    """Write updated_text to a timestamped .txt in SNAPSHOT_DIR and return the path."""
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    base = Path(file_path).name.replace(os.sep, "_")
+    updated_name = f"{base}.{timestamp}.txt"
+    updated_path = SNAPSHOT_DIR / updated_name
+    updated_path.write_text(updated_text, encoding="utf-8")
+    return str(updated_path)
+
+
+def _save_snapshot(
+    file_path: str,
+    updated_text: str,
+    search_result: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Write a JSON snapshot with updated_text and search_result; return the path."""
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    snapshot = {
+        "timestamp_utc": timestamp,
+        "file_path": file_path,
+        "updated_text": updated_text,
+        "search_result": search_result or {},
+    }
+    base = Path(file_path).name.replace(os.sep, "_")
+    snapshot_name = f"{base}.{timestamp}.json"
+    snapshot_path = SNAPSHOT_DIR / snapshot_name
+    snapshot_path.write_text(
+        json.dumps(snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return str(snapshot_path)
+
+
+# ----------------------------------------------------------------------
+# MonitorAgent builder (LLM + tools only, no workflow logic inside)
+# ----------------------------------------------------------------------
 class MonitorAgent:
-    """
-    Builds the monitor_agent (and its sub-agents/tools), but does NOT
-    contain any workflow / Runner / session logic.
-    """
+    """Builds the monitor_agent LlmAgent (uses google_search via sub-agent)."""
 
     def __init__(self, api_key: Optional[str] = None) -> None:
-        # ------------------------------------------------------------------
-        # API key and retry options
-        # ------------------------------------------------------------------
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise RuntimeError(
                 "GOOGLE_API_KEY is not set. Please export it or pass api_key explicitly."
             )
 
+        # Simple retry config
         self.retry_options = genai_types.HttpRetryOptions(
             attempts=5,
             exp_base=7,
@@ -40,27 +83,22 @@ class MonitorAgent:
             http_status_codes=[429, 500, 503, 504],
         )
 
-        # ------------------------------------------------------------------
-        # LLM instances
-        # ------------------------------------------------------------------
-        self.google_search_llm = Gemini(
+        # LLMs
+        self.search_llm = Gemini(
             model="gemini-2.5-flash-lite",
             api_key=self.api_key,
             retry_options=self.retry_options,
         )
-
         self.monitor_llm = Gemini(
             model="gemini-2.5-flash-lite",
             api_key=self.api_key,
             retry_options=self.retry_options,
         )
 
-        # ------------------------------------------------------------------
-        # Sub-agent: google_search_agent
-        # ------------------------------------------------------------------
+        # Sub-agent using google_search tool
         self.google_search_agent = LlmAgent(
             name="google_search_agent",
-            model=self.google_search_llm,
+            model=self.search_llm,
             description="Searches for information using Google search.",
             instruction=(
                 "Use the `google_search` tool to find information on the given topic. "
@@ -69,170 +107,177 @@ class MonitorAgent:
             tools=[google_search],
         )
 
-        # ------------------------------------------------------------------
-        # Main monitor_agent
-        # ------------------------------------------------------------------
+        # Main monitor agent – model returns JSON only; Python does all file I/O.
         self.agent = LlmAgent(
             name="monitor_agent",
             model=self.monitor_llm,
             description=(
-                "An agent that reads a local text file, finds errors or outdated content, "
-                "summarizes the findings, applies necessary minimal changes to the original "
-                "text while keeping its structure, saves the updated text as a separate "
-                "file, and writes a JSON snapshot."
+                "Given a policy text, find issues, optionally consult the web, and "
+                "produce a minimally edited updated version in JSON format."
             ),
-            instruction="""
+            instruction=self._build_instruction(),
+            tools=[AgentTool(agent=self.google_search_agent)],
+        )
+
+    def _build_instruction(self) -> str:
+        """System prompt: model returns JSON; Python handles file I/O."""
+        return """
 You are a monitoring and correction agent for a single text file (e.g., a policy document).
 
-You have these tools:
-- `fetch_file_content(file_path)` to read the current contents of the file.
-- `google_search_agent` (via AgentTool) to check the web for related or updated information.
-- `save_updated_file(file_path, updated_text)` to save the final updated text to a
-  separate .txt file and return its path.
-- `save_snapshot(file_path, file_content, search_result)` to save a JSON snapshot
-  of the final updated text and any search results.
+INPUT FORMAT (from user):
+- You will receive ONE message containing a JSON object with keys:
+  - "file_path": string, path to the policy file on disk.
+  - "original_text": string, the current content of the file.
+  - "extra_instructions": optional string with additional guidance.
 
-Your workflow MUST follow these steps:
+Your job:
+1) Read original_text and identify:
+   - Obvious typos or formatting errors.
+   - Logical inconsistencies or contradictions.
+   - Clearly outdated or incorrect information (dates, references, etc).
+2) If you need external or up-to-date info, call `google_search_agent` to look up
+   relevant policy or regulatory information.
+3) Produce a minimally edited `updated_text`:
+   - Preserve headings, section order, and structure.
+   - Only change what is clearly necessary.
+4) RETURN (VERY IMPORTANT) exactly ONE JSON object with keys:
+   - "summary": short explanation of what you changed / why.
+   - "updated_text": the full updated policy text (same structure as original).
+   - "search_result": short natural-language summary of anything important you found via search
+                      (or an empty string if you did not use search).
 
-1. Fetch the original file.
-   - Use `fetch_file_content(file_path)` with the given path to obtain the ORIGINAL text.
-   - Call this text `original_text`.
-   - Treat `original_text` as the base version; do not rewrite from scratch.
+Constraints:
+- Do NOT perform any file I/O yourself.
+- Do NOT return markdown or backticks.
+- The entire reply MUST be a single valid JSON object.
+        """.strip()
 
-2. Analyze and find issues.
-   - Carefully read `original_text` and identify any problems:
-     * Obvious typos or formatting errors.
-     * Logical inconsistencies or contradictions.
-     * Clearly outdated or incorrect information (dates, references, names, etc.).
-   - If needed, use `google_search_agent` to verify whether certain parts are outdated
-     or incorrect, and to gather updated information.
-
-3. Summarize the error findings.
-   - Produce a concise, structured summary of what you found, for example:
-     * Which sections contain issues.
-     * What kinds of errors or updates are required.
-   - This summary will appear in your final reply.
-
-4. Apply necessary changes to create the final updated text.
-   - Based on your summarized findings, create `updated_text` by minimally editing
-     `original_text`.
-   - IMPORTANT: Preserve the structure of the original text:
-     * Keep all headings, section order, numbering, lists, and paragraph boundaries.
-     * Do NOT add or remove sections.
-     * Do NOT merge or split paragraphs.
-   - Only make changes that are clearly necessary:
-     * Fix clear typos, formatting, and obviously wrong information.
-     * If you are unsure about a change, leave that part unchanged.
-   - If you find no clear errors or required updates, then set
-     `updated_text` **exactly equal** to `original_text`.
-
-5. Save the updated text and the snapshot.
-   - First, call:
-       `save_updated_file(file_path, updated_text)`
-     This will write the final updated text into a separate .txt file and return
-     its path. Call this returned value `updated_file_path`.
-
-   - Then call:
-       `save_snapshot(file_path, updated_text, search_result)`
-     where:
-       - `file_path` is the path you were given,
-       - `updated_text` is the final corrected full text,
-       - `search_result` is what you obtained from `google_search_agent`
-         (or an empty/placeholder structure if you did not use search).
-     This tool returns a string path to the JSON snapshot file. Call this
-     value `snapshot_path`.
-
-6. Final reply format (VERY IMPORTANT):
-   Your final reply to the user MUST contain three clearly separated parts
-   in this order:
-
-   (A) Summary of Findings
-       - A brief, structured summary of the errors/updates you identified in
-         the original file.
-
-   (B) Updated File Path
-       - A single line that clearly shows `updated_file_path` returned by
-         `save_updated_file(file_path, updated_text)`.
-
-   (C) Snapshot File Path
-       - A single line that clearly shows `snapshot_path` returned by
-         `save_snapshot(file_path, updated_text, search_result)`.
-
-Do NOT include internal tool-call details or implementation notes.
-Do NOT reprint the entire updated text in the final reply unless explicitly asked;
-the updated text is already saved by `save_updated_file`.
-""",
-            tools=[
-                self.fetch_file_content,
-                AgentTool(agent=self.google_search_agent),
-                self.save_updated_file,
-                self.save_snapshot,
-            ],
-        )
-
-    # ------------------------------------------------------------------
-    # Tools
-    # ------------------------------------------------------------------
-    @staticmethod
-    def fetch_file_content(file_path: str) -> str:
-        """
-        Read and return the content of a text file.
-        """
-        path = Path(file_path)
-        if not path.is_file():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        return path.read_text(encoding="utf-8")
-
-    @staticmethod
-    def save_snapshot(
-        file_path: str,
-        file_content: str,
-        search_result: Dict[str, Any],
-    ) -> str:
-        """
-        Save a timestamped JSON snapshot of the monitored file and its search results.
-        """
-        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        base = Path(file_path).name.replace(os.sep, "_")
-        snapshot_name = f"{base}.{timestamp}.json"
-        snapshot_path = SNAPSHOT_DIR / snapshot_name
-
-        snapshot = {
-            "timestamp_utc": timestamp,
-            "file_path": file_path,
-            "file_content": file_content,
-            "search_result": search_result,
-        }
-
-        snapshot_path.write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return str(snapshot_path)
-
-    @staticmethod
-    def save_updated_file(file_path: str, updated_text: str) -> str:
-        """
-        Save the final updated text into a separate .txt file and return its path.
-
-        The file will be saved under SNAPSHOT_DIR with a timestamped name:
-            data/snapshots/<basename>.<YYYYmmdd-HHMMSS>.txt
-        """
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        base = Path(file_path).name.replace(os.sep, "_")
-        updated_name = f"{base}.{timestamp}.txt"
-        updated_path = SNAPSHOT_DIR / updated_name
-
-        updated_path.write_text(updated_text, encoding="utf-8")
-        return str(updated_path)
-
-    # ------------------------------------------------------------------
-    # Helper
-    # ------------------------------------------------------------------
     def get_agent(self) -> LlmAgent:
-        """
-        Return the configured monitor_agent (LlmAgent instance).
-        """
+        """Return the configured LlmAgent instance."""
         return self.agent
+
+
+# ----------------------------------------------------------------------
+# Tiny runner helper (for tests / workflows / other agents)
+# ----------------------------------------------------------------------
+def _extract_json(text: str) -> Dict[str, Any]:
+    """
+    Try to parse JSON robustly.
+
+    - First try direct json.loads.
+    - If that fails, try to extract the substring between the first '{'
+      and the last '}' and parse that.
+    """
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    raise RuntimeError(f"Could not parse JSON from monitor_agent output:\n{text}")
+
+# ----------------------------------------------------------------------
+# Tiny runner helper (for easy integration with other agents / workflows)
+# ----------------------------------------------------------------------
+async def run_monitor_once(
+    message_text: str,
+    *,
+    policy_path: str = "data/policy.txt",
+    app_name: str = APP_NAME,
+    user_id: str = DEFAULT_USER_ID,
+    session_id: str = DEFAULT_SESSION_ID,
+    api_key: Optional[str] = None,
+) -> str:
+    """
+    Run monitor_agent once and return a string summarizing summary + paths.
+
+    Your calling code can simply do:
+
+        result = await run_monitor_once("...instructions...")
+        print(result)
+
+    `policy_path` is where the policy lives on disk.
+    """
+    policy_file = Path(policy_path)
+    if not policy_file.exists():
+        raise FileNotFoundError(f"Policy file not found: {policy_file.resolve()}")
+
+    original_text = policy_file.read_text(encoding="utf-8")
+
+    # JSON payload passed to the agent
+    payload = {
+        "file_path": policy_path,
+        "original_text": original_text,
+        "extra_instructions": message_text,
+    }
+    user_payload = json.dumps(payload, ensure_ascii=False)
+
+    builder = MonitorAgent(api_key=api_key)
+    agent = builder.get_agent()
+
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    user_content = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text=user_payload)],
+    )
+
+    final_text = ""
+
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=user_content,
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            final_text = "".join(
+                (part.text or "")
+                for part in event.content.parts
+                if getattr(part, "text", None)
+            ).strip()
+            break
+
+    if not final_text:
+        raise RuntimeError("monitor_agent produced no final text response.")
+
+    parsed = _extract_json(final_text)
+
+    summary = parsed.get("summary", "").strip()
+    updated_text = parsed.get("updated_text", "")
+    search_result = parsed.get("search_result", "")
+
+    if not isinstance(updated_text, str) or not updated_text.strip():
+        raise RuntimeError("monitor_agent did not return a non-empty 'updated_text' field.")
+
+    updated_file_path = _save_updated_file(policy_path, updated_text)
+    snapshot_file_path = _save_snapshot(
+        policy_path,
+        updated_text,
+        {"search_result": search_result},
+    )
+
+    # Return a simple, easy-to-consume summary string
+    result_lines = [
+        "Summary of Findings:",
+        summary or "(no summary provided)",
+        "",
+        f"Updated File Path: {updated_file_path}",
+        f"Snapshot File Path: {snapshot_file_path}",
+    ]
+    return "\n".join(result_lines)

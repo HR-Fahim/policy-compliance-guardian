@@ -1,4 +1,4 @@
-# src/main_workflow.py
+# src/test_monitor_and_authorize_workflow_v1.py
 
 import asyncio
 import datetime
@@ -64,7 +64,8 @@ async def run_monitor_once(policy_path: str = DEFAULT_POLICY_PATH) -> str:
         "1) Form a good search query based on the policy text.\n"
         "2) Use `google_search_agent` to look for updated or related information.\n"
         "3) Call `save_snapshot(file_path, file_content, search_result)`.\n"
-        "4) Summarize your findings and include the snapshot path.\n"
+        "4) Call `save_updated_file(file_path, updated_text).\n"
+        "5) Summarize your findings and include the snapshot path.\n"
     )
 
     user_content = genai_types.Content(

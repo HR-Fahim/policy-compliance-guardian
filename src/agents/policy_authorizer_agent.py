@@ -1,8 +1,9 @@
 # src/agents/policy_authorizer_agent.py
 
 import os
+import json
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
 
@@ -10,38 +11,52 @@ from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import google_search
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
+
+#from dotenv import load_dotenv
+#load_dotenv()  # this will read .env into os.environ
+
+APP_NAME = "agents"
+DEFAULT_USER_ID = "policy_auth_user"
+DEFAULT_SESSION_ID = "policy_auth_session_1"
 
 
 @dataclass
 class PolicyAuthConfig:
-    """
-    Configuration hints for the PolicyAuthorizerAgent.
-
-    These are optional, but can guide the agent:
-    - trusted_domains: domains or domain substrings that are considered official.
-      e.g. ["gov.uk", "europa.eu", "irs.gov", "example.com"]
-    """
+    """Optional configuration hints for the PolicyAuthorizerAgent."""
     trusted_domains: Optional[List[str]] = None
+
+
+def _extract_json(text: str) -> Dict[str, Any]:
+    """
+    Try to parse JSON robustly:
+    - First direct json.loads.
+    - Then try substring between first '{' and last '}'.
+    """
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    raise RuntimeError(f"Could not parse JSON from policy_authorizer_agent output:\n{text}")
 
 
 class PolicyAuthorizerAgent:
     """
-    Builds an LlmAgent that checks whether a policy text obtained/updated
-    via the monitor agent (often based on website content) is likely to be
-    authentic (from a real, official source) or fake/suspicious.
-
-    The agent:
-    - Takes policy text and metadata (e.g. source URLs, organization name).
-    - Uses a google_search sub-agent to cross-check the policy against
-      multiple independent sources.
-    - Looks at domains, consistency of content, and red flags (typosquatting,
-      strange TLDs, mismatched branding).
-    - Returns a structured analysis:
-        * classification: "trusted", "suspicious", or "uncertain"
-        * reasoning: explanation
-        * evidence_links: list of URLs used as evidence
-        * recommended_actions: what to do next (e.g. manual legal review).
+    LLM agent that checks whether a policy text looks authentic or suspicious.
+    Uses a google_search sub-agent; returns a single JSON object (no file I/O).
     """
 
     def __init__(
@@ -49,6 +64,8 @@ class PolicyAuthorizerAgent:
         api_key: Optional[str] = None,
         config: Optional[PolicyAuthConfig] = None,
     ) -> None:
+        load_dotenv()
+
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise RuntimeError(
@@ -64,28 +81,23 @@ class PolicyAuthorizerAgent:
             http_status_codes=[429, 500, 503, 504],
         )
 
-        # ------------------------------------------------------------------
         # LLMs
-        # ------------------------------------------------------------------
         self.search_llm = Gemini(
             model="gemini-2.5-flash-lite",
             api_key=self.api_key,
             retry_options=self.retry_options,
         )
-
         self.authorizer_llm = Gemini(
             model="gemini-2.5-flash-lite",
             api_key=self.api_key,
             retry_options=self.retry_options,
         )
 
-        # ------------------------------------------------------------------
         # Sub-agent: google_search_agent
-        # ------------------------------------------------------------------
         self.google_search_agent = LlmAgent(
             name="google_search_agent",
             model=self.search_llm,
-            description="Searches for information using Google search.",
+            description="Searches for information using Google Search.",
             instruction=(
                 "Use the `google_search` tool to find highly relevant, recent web "
                 "results for a given query. Return the raw search results, including "
@@ -94,9 +106,6 @@ class PolicyAuthorizerAgent:
             tools=[google_search],
         )
 
-        # ------------------------------------------------------------------
-        # Main policy_authorizer_agent
-        # ------------------------------------------------------------------
         trusted_domains_hint = ""
         if self.config.trusted_domains:
             trusted_domains_hint = (
@@ -109,100 +118,154 @@ class PolicyAuthorizerAgent:
             name="policy_authorizer_agent",
             model=self.authorizer_llm,
             description=(
-                "Checks whether a given policy text and its web source(s) are likely "
-                "to be authentic and official, or fake/suspicious."
+                "Checks whether a given policy text is likely to be authentic and "
+                "official, or fake/suspicious."
             ),
-            instruction=f"""
+            instruction=self._build_instruction(trusted_domains_hint),
+            tools=[AgentTool(agent=self.google_search_agent)],
+        )
+
+    def _build_instruction(self, trusted_domains_hint: str) -> str:
+        """System prompt: LLM returns JSON only; Python wraps it."""
+        return f"""
 You are the "policy authorizer" agent in a policy-compliance system.
 
-Context:
-- Another agent (the "monitor agent") may fetch or update policy text using web search.
-- Your job is to help ensure that such policies are not fake and are likely from
-  real, official sources.
+INPUT FORMAT (from user):
+- You will receive ONE message containing a JSON object with keys:
+  - "policy_text": string, the full policy content as plain text.
+  - "organization": optional string, the claimed organization (e.g., company or agency).
+  - "extra_context": optional string with any additional hints
+                     (e.g., "this came from the monitor agent").
 
-You have access to:
-- `google_search_agent` (via AgentTool) to perform independent web searches and
-  cross-check information (titles, URLs, snippets) from multiple sources.
+Your tools:
+- `google_search_agent` (via AgentTool):
+    * Uses Google Search to cross-check policy title/phrases/organization.
+    * Helps you determine whether domains and content are official vs suspicious.
 
-{trusted_domains_hint}Your tasks when invoked:
+{trusted_domains_hint}Your tasks:
 
 1. Understand the input:
-   - You will be given:
-     * The raw policy text (possibly updated by the monitor agent).
-     * Optional metadata such as:
-       - Source URL(s) where the monitor agent got or updated the policy.
-       - The supposed organization or website that owns this policy.
-       - Any declared "official" domain (e.g. example.com).
-   - Carefully read the policy text and metadata.
+   - Read the policy_text, organization (if provided), and extra_context.
 
-2. Plan your verification:
-   - Decide what queries to issue to `google_search_agent` to verify authenticity.
-     Examples:
-       * The policy title + organization name.
-       * Unique phrases or clauses from the policy.
-       * The domain(s) seen in the metadata (to check if they are known/official).
-   - Always aim to cross-check against:
-       * The organization's known official site (if any).
-       * Multiple independent, reputable sources (news sites, official portals, etc.).
+2. Plan verification:
+   - Decide what queries to send to `google_search_agent`, such as:
+     * Policy title + organization.
+     * Suspicious or unique phrases from the policy_text.
+     * The organization name plus "official site" to locate plausible official domains.
 
 3. Use google_search_agent:
-   - Call `google_search_agent` one or more times to:
-       * Confirm if the policy or similar text appears on the organization's
-         official or long-established domain(s).
-       * Detect look-alike or typosquatted domains (e.g. "g00gle.com" vs "google.com").
-       * Check for any signs that the content or domain is flagged as scam/fraud.
+   - Call it one or more times to:
+     * Check if similar or identical policy text appears on reputable domains.
+     * Determine whether the likely official domain(s) are consistent with the content.
+     * Look for signals of scams/fraud or conflicting policies.
 
 4. Evaluate authenticity:
-   - Carefully analyze:
-       * Whether the domain(s) that host the policy appear to be official or
-         long-standing for that organization.
-       * Whether the policy text is consistent with other authoritative pages
-         about the same topic (e.g. similar wording, scope).
-       * Whether there are red flags such as:
-           - Strange or newly registered domains with odd TLDs.
-           - Content that conflicts with official government or corporate sources.
-           - Excessive ads, scam language, or phishing-like content.
+   - Analyze:
+     * Whether the domains and content you find look official/long-standing or scammy.
+     * Whether policy content matches authoritative pages.
+     * Red flags: weird TLDs, contradictory content, scam patterns, etc.
 
-   - Based on this, classify the policy into one of:
-       * "trusted"       - Likely authentic and from a real, official source.
-       * "suspicious"    - Likely fake, misleading, or from an untrusted source.
-       * "uncertain"     - Not enough evidence to decide; manual review needed.
+   - Classify the policy as:
+     * "trusted"
+     * "suspicious"
+     * "uncertain"
 
-5. Produce a structured final answer:
-   - Your final reply MUST be a JSON-like structure in plain text with the following keys:
+5. FINAL OUTPUT (VERY IMPORTANT):
+   - Respond with exactly ONE JSON object (no markdown, no backticks), with keys:
 
      {{
        "classification": "<trusted | suspicious | uncertain>",
-       "reasoning": "<short explanation of why you reached this classification>",
+       "reasoning": "<short explanation>",
        "evidence_links": [
          "<url_1>",
-         "<url_2>",
-         ...
+         "<url_2>"
        ],
-       "source_domain_assessment": "<short note about whether the domains look official or not>",
-       "content_consistency_assessment": "<whether the policy content matches what is seen on official or reputable sites>",
-       "recommended_actions": "<what the system or humans should do next (e.g., accept, reject, or escalate for manual review)>"
+       "source_domain_assessment": "<short note about whether discovered domains look official>",
+       "content_consistency_assessment": "<whether the policy content matches reputable sites>",
+       "recommended_actions": "<what to do next (accept, reject, manual review)>"
      }}
 
-   - "evidence_links" must be a list of the most relevant URLs you used as evidence.
-   - Keep explanations concise and focused on authenticity / trust, not general summarization.
+   - "evidence_links" is a list of the most relevant URLs you used.
    - Do NOT include internal tool-call details.
-   - Do NOT include any other top-level keys besides those listed above, unless the user explicitly asks for more fields.
+   - Do NOT add any other top-level keys.
+   - The entire reply MUST be a single valid JSON object.
+        """.strip()
 
-Your core objective is to help the system avoid trusting fake or spoofed policies.
-Err on the side of caution: if evidence is weak or conflicting, prefer "uncertain"
-and recommend manual/legal review.
-""",
-            tools=[
-                AgentTool(agent=self.google_search_agent),
-            ],
-        )
-
-    # ------------------------------------------------------------------
-    # Helper
-    # ------------------------------------------------------------------
     def get_agent(self) -> LlmAgent:
-        """
-        Return the configured policy_authorizer_agent (LlmAgent instance).
-        """
+        """Return the configured policy_authorizer_agent."""
         return self.agent
+
+
+# ----------------------------------------------------------------------
+# Tiny runner helper (for easy integration with other agents / workflows)
+# ----------------------------------------------------------------------
+async def run_policy_authorizer_once(
+    policy_text: str,
+    *,
+    organization: Optional[str] = None,
+    extra_context: str = "",
+    app_name: str = APP_NAME,
+    user_id: str = DEFAULT_USER_ID,
+    session_id: str = DEFAULT_SESSION_ID,
+    api_key: Optional[str] = None,
+    config: Optional[PolicyAuthConfig] = None,
+) -> str:
+    """
+    Run PolicyAuthorizerAgent once and return a pretty-printed JSON string.
+
+    Example:
+
+        result_json_str = await run_policy_authorizer_once(
+            policy_text,
+            organization="Example Corp",
+            extra_context="Came from monitor_agent updated file",
+            config=PolicyAuthConfig(trusted_domains=["example.com"]),
+        )
+        print(result_json_str)
+    """
+    payload: Dict[str, Any] = {
+        "policy_text": policy_text,
+        "organization": organization or "",
+        "extra_context": extra_context or "",
+    }
+    user_payload = json.dumps(payload, ensure_ascii=False)
+
+    builder = PolicyAuthorizerAgent(api_key=api_key, config=config)
+    agent = builder.get_agent()
+
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    user_content = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text=user_payload)],
+    )
+
+    final_text = ""
+
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=user_content,
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            final_text = "".join(
+                (part.text or "")
+                for part in event.content.parts
+                if getattr(part, "text", None)
+            ).strip()
+            break
+
+    if not final_text:
+        raise RuntimeError("policy_authorizer_agent produced no final text response.")
+
+    parsed = _extract_json(final_text)
+
+    # Return a clean, pretty-printed JSON string that other agents can consume as text
+    return json.dumps(parsed, ensure_ascii=False, indent=2)
