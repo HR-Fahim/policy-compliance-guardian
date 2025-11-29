@@ -28,13 +28,14 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
+APP_NAME = "monitor_app"
+USER_ID = "monitor_user"
+SESSION_ID = "monitor_session_0"
+
 # Directory to store snapshots and updated files
 SNAPSHOT_DIR = Path(__file__).parent.parent /"temp/data/monitored_snapshots"
 SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-APP_NAME = "monitor_app"
-USER_ID = "monitor_user"
-SESSION_ID = "monitor_session_0"
 DEFAULT_POLICY_PATH = Path(__file__).parent.parent /"temp/data/fake_policy.txt"
 
 DEFAULT_USER_EMAIL = os.getenv("USER_EMAIL")

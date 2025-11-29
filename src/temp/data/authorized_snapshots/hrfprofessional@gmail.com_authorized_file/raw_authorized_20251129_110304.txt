@@ -1,0 +1,32 @@
+GitHub Acceptable Use Policies
+
+Introduction:
+This policy governs the use of our services. We host a wide variety of collaborative projects and aim to foster a safe and productive environment for everyone. When using the Service, you are required to comply with these Policies. 
+
+All capitalized terms not defined in this agreement shall have the meaning given to them in the Main Agreement. “We”, “Us”, and “Ourselves” refer to GitHub.
+
+1. Compliance with Laws and Regulations
+
+You are responsible for using the Service in compliance with all applicable laws and regulations in your jurisdiction. You may not use the Service for any unlawful purpose.
+
+2. User Safety
+
+Users may not post, upload, distribute, transmit, or store content that:
+
+- is unlawful or promotes illegal activities;
+
+- is sexually obscene or involves exploitation of minors;
+
+- is libelous, defamatory, or fraudulent;
+
+- is discriminatory or abusive toward any individual or group;
+
+- contains false or inaccurate information intended to mislead others;
+
+- constitutes harassment or invasion of privacy;
+
+- includes threats of violence;
+
+- contains unnecessary or gratuitous depictions of violence;
+
+- disrupts the platform, such as through spam, or degrades the experience for other users.

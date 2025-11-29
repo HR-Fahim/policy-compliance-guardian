@@ -16,6 +16,10 @@ load_dotenv()
 DEFAULT_POLICY_PATH = Path(__file__).parent
 DEFAULT_USER_EMAIL = os.getenv("USER_EMAIL")
 
+APP_NAME = "monitor_app"
+USER_ID = "monitor_user"
+SESSION_ID = "monitor_session_0"
+
 # ---------------------------------------------------------
 # Load monitor agent (existing code kept)
 # ---------------------------------------------------------
