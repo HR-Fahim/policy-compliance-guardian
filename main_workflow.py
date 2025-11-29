@@ -53,7 +53,7 @@ async def run_comparison():
     comp = ComparisonAgent(api_key=os.getenv("GOOGLE_API_KEY"))
 
     # FIXED OLD FILE (baseline)
-    old_file = DEFAULT_POLICY_PATH / "src" / "temp" / "data" / "fake_policy.txt"
+    old_file = DEFAULT_POLICY_PATH / "src" / "temp" / "data" / "temp.txt"
 
     if not old_file.exists():
         print(f"Old file not found: {old_file}")

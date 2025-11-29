@@ -17,7 +17,9 @@ load_dotenv()
 app = FastAPI()
 
 # Directory to store snapshots and updated files
-SNAPSHOT_DIR = Path(__file__).parent.parent /"temp/data/monitored_snapshots"
+SNAPSHOT_DIR_MONITORED = Path(__file__).parent.parent /"temp/data/monitored_snapshots"
+SNAPSHOT_DIR_AUTHORIZED = Path(__file__).parent.parent /"temp/data/authorized_snapshots"
+
 # print("Snapshot directory:", SNAPSHOT_DIR)
 
 # Default user email from environment
@@ -107,7 +109,7 @@ async def get_latest_snapshot(user_email: str):
     if user_email != DEFAULT_USER_EMAIL:
         raise HTTPException(status_code=404, detail="not found")
 
-    user_dir = Path(SNAPSHOT_DIR) / f"{user_email}_monitored_file"
+    user_dir = Path(SNAPSHOT_DIR_MONITORED) / f"{user_email}_monitored_file"
     if not user_dir.exists():
         raise HTTPException(status_code=404, detail="not found")
 
@@ -129,7 +131,37 @@ async def get_latest_snapshot(user_email: str):
     except Exception:
         raise HTTPException(status_code=500, detail="failed to read snapshot")
 
+# ------------------------------------------------------------
+# Returns latest JSON snapshot for this user
+# GET /{default_user_email}/authorized-file
+# ------------------------------------------------------------
+@app.get("/{user_email}/authorized-file")
+async def get_latest_snapshot(user_email: str):
+    if user_email != DEFAULT_USER_EMAIL:
+        raise HTTPException(status_code=404, detail="not found")      
 
+    user_dir = Path(SNAPSHOT_DIR_AUTHORIZED) / f"{user_email}_authorized_file"
+    if not user_dir.exists():
+        raise HTTPException(status_code=404, detail="not found")
+
+    # Match files like: email.monitored_file.YYYYMMDD_HHMMSS.json
+    json_files = list(user_dir.glob(f"policy_authorized.*.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="not found")
+
+    # Extract timestamp from filename to sort correctly
+    def extract_timestamp(path: Path) -> str:
+        # filename format: monitored_file.<timestamp>.json
+        return path.stem.split(".")[1] # returns <timestamp>
+
+    latest_file = max(json_files, key=lambda f: extract_timestamp(f))
+
+    try:
+        content = json.loads(latest_file.read_text(encoding="utf-8"))
+        return {"file": latest_file.name, "data": content}
+    except Exception:
+        raise HTTPException(status_code=500, detail="failed to read snapshot")
+    
 # ------------------------------------------------------------
 # Entrypoint
 # ------------------------------------------------------------

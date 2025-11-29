@@ -36,7 +36,7 @@ SESSION_ID = "monitor_session_0"
 SNAPSHOT_DIR = Path(__file__).parent.parent /"temp/data/monitored_snapshots"
 SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_POLICY_PATH = Path(__file__).parent.parent /"temp/data/fake_policy.txt"
+DEFAULT_POLICY_PATH = Path(__file__).parent.parent /"temp/data/temp.txt"
 
 DEFAULT_USER_EMAIL = os.getenv("USER_EMAIL")
 

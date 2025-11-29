@@ -73,7 +73,7 @@ class ComparisonAgent:
                 "Ignore paraphrasing unless the meaning truly changes. "
                 "Respond strictly in JSON: {\"changed\": true/false, \"summary\": \"...\"}."
             ),
-            tools=[google_search],
+            # tools=[google_search],
         )
 
         # ADK runner session service

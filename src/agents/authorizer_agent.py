@@ -245,9 +245,9 @@ OUTPUT STRICTLY IN JSON FORMAT ONLY:
         # CASE 1 — NO UPDATE: only copy ORIGINAL monitored files
         # ---------------------------------------------------------
         if not should_update:
-            for f in input_dir.glob("monitored_file*"):
+            for f in input_dir.glob("policy_authorized.*"):
                 shutil.copy(f, output_dir / f.name)
-            for f in input_dir.glob("raw_monitored_file*"):
+            for f in input_dir.glob("raw_policy_authorized.*"):
                 shutil.copy(f, output_dir / f.name)
             return {"decision": "UNCHANGED", "details": result}
 
@@ -256,16 +256,16 @@ OUTPUT STRICTLY IN JSON FORMAT ONLY:
         # ---------------------------------------------------------
         timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
-        (output_dir / f"summary_authorized_{timestamp}.txt").write_text(
+        (output_dir / f"summary_authorized.{timestamp}.txt").write_text(
             result.get("corrected_summary", ""), encoding="utf-8"
         )
 
-        (output_dir / f"policy_authorized_{timestamp}.json").write_text(
+        (output_dir / f"policy_authorized.{timestamp}.json").write_text(
             json.dumps(result.get("corrected_json", {}), indent=2),
             encoding="utf-8",
         )
 
-        (output_dir / f"raw_authorized_{timestamp}.txt").write_text(
+        (output_dir / f"raw_authorized.{timestamp}.txt").write_text(
             result.get("corrected_raw_text", ""), encoding="utf-8"
         )
 

@@ -1,0 +1,39 @@
+GitHub Acceptable Use Policy
+
+Introduction:
+This Acceptable Use Policy outlines the rules and restrictions for using GitHub, aiming to ensure a safe, secure, and collaborative environment for all users. All users must comply with this policy, in addition to all applicable laws and regulations.
+
+All capitalized terms not defined in this document will have the meanings set forth in the GitHub Terms of Service.
+
+1. Compliance With Laws and Regulations
+
+You are responsible for using the Service in compliance with all applicable laws, regulations, and ordinances. 
+
+2. User Safety
+
+GitHub prohibits content and activities that endanger users. This includes a ban on:
+
+- Active malware or exploits.
+- Bullying and harassment.
+- Doxxing and invasion of privacy.
+- Hate speech and discrimination.
+- Impersonation.
+- Threats of violence.
+- Sexually obscene content.
+- Terrorism and violent extremism.
+
+3. Intellectual Property, Authenticity, and Private Information
+
+Users may not post content that infringes on intellectual property rights, is inauthentic, or violates someone's privacy. This is further supported by GitHub's DMCA Takedown Policy and a process for private information removal.
+
+4. Spam and Inauthentic Activity
+
+The policy forbids spam and other inauthentic activities, including the use of automation for such purposes. Scraping and the automated extraction of information are generally not permitted, except through the official API.
+
+5. Platform Integrity and Site Access
+
+Users must not engage in activities that disrupt the service or attempt to gain unauthorized access to any system or network. Activities under authorized bug bounty programs are not considered 'unauthorized.'
+
+6. Service Usage and Privacy
+
+The policy sets limits on service usage, including a warning against excessive bandwidth use. Information gathered from the service cannot be used for spamming or selling personal information. All use of information from GitHub must adhere to the GitHub Privacy Statement.
