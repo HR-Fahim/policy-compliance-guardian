@@ -92,14 +92,5 @@ def send_email(to_email: str, subject: str, body: str):
     return result
 
 
-# ======================================================
-# EXAMPLE USAGE
-# ======================================================
 
-if __name__ == "__main__":
-    # quick test example
-    send_email(
-        to_email="hrf.devops@gmail.com",
-        subject="Policy Compliance Guardian Notification",
-        body="Your latest policy update has been processed successfully."
-    )
+    

@@ -15,6 +15,8 @@ from google.adk.tools.google_search_tool import google_search
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 
+from src.tools.notifier_tool import send_email
+
 # Gemini base SDK types for constructing messages
 from google.genai import types
 
@@ -36,6 +38,15 @@ def newest_file(files: list[Path]):
 def notification_agent(summary: str):
     print(">>> Notification Agent Triggered!")
     print(summary)
+
+    send_email(
+        to_email="hrf.devops@gmail.com",
+        subject="Policy Compliance Guardian Notification",
+        body="""Greetings,
+        \nYour latest policy update has been processed successfully. Please check the updated documents from Google Drive for details.
+        \n\nBest regards,\nPolicy Compliance Guardian Team
+        """,
+    )
 
 
 # ---------------------------------------------------------
