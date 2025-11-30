@@ -15,7 +15,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 CREDENTIALS_FILE = r"Development\policy-compliance-guardian\src\tools\credentials.json"
-TOKEN_FILE = r"Development\policy-compliance-guardian\src\tools\token.json"
+TOKEN_FILE = r"Development\policy-compliance-guardian\src\tools\docs_fetcher_token.json"
 
 FOLDER_NAME = "Test_Documents"  
 

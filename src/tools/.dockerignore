@@ -5,7 +5,8 @@
 # https://docs.docker.com/go/build-context-dockerignore/
 
 credentials.json
-token.json
+docs_fetcher_token.json
+notifier_token.json
 **/.DS_Store
 **/__pycache__
 **/.venv

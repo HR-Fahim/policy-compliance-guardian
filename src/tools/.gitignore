@@ -1,3 +1,4 @@
 credentials.json
 .env
-token.json
+docs_fetcher_token.json
+notifier_token.json
