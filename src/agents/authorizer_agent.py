@@ -137,7 +137,7 @@ You receive an object containing:
 - raw_text: full raw monitored text
 
 Your job:
-- Validate the policy's authenticity, correctness, metadata validity.
+- Must validate the policy's authenticity, correctness, metadata validity using trusted sources using google_search.
 - Use google_search_agent to cross-check terms, references, timestamps, and policy sources.
 - Identify tampering, inconsistencies, outdated references, or suspicious content.
 
@@ -145,7 +145,7 @@ You MUST follow these rules:
 1. First, try to verify the authenticity of the monitored policy using trusted sources via google_search. 
 2. If authenticated source found, then deeply analyze content, references, metadata and compare. If you find issues (tampering, inconsistencies, outdated info), correct them based on trusted sources. 
 3. Make sure to update only the parts by rewriting that need correction. DO NOT ADD ANYTHING EXTRA.
-4. If you cannot verify authenticity or find issues, do NOT update; return original files by rewriting them as-is.
+4. If you cannot verify authenticity or find issues, do NOT update; return original text as same from the monitor agent. DO NOT ADD ANYTHING EXTRA. Only update the parts by rewriting them as-is.
 
 {trusted_domains_hint}
 

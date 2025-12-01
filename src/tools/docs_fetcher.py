@@ -160,5 +160,5 @@ def fetch_temp_docs():
 # ENTRY POINT
 # ======================================================
 
-if __name__ == "__main__":
-    fetch_temp_docs()
+# if __name__ == "__main__":
+#     fetch_temp_docs()
