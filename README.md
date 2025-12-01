@@ -297,9 +297,4 @@ Some ideas for extending `policy-compliance-guardian`:
 
 ## 📄 License
 
-Add your chosen license here (e.g., MIT, Apache-2.0).
-
-```text
-Copyright (c) 2025 Lingli Wang, Habibur Rahaman Fahim, Abdullah Zunorain, Muktadir Hossain Shihab
-All rights reserved.
-```
+This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
