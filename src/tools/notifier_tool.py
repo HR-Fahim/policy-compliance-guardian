@@ -129,6 +129,10 @@ def upload_and_replace_temp_docs():
         if os.path.exists(TOKEN_FILE):
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        print("DEBUG SCOPES IN TOKEN:", creds.scopes)
+
+
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 print("Refreshing Drive token...")
