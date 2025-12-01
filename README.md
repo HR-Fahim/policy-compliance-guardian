@@ -135,7 +135,7 @@ policy-compliance-guardian/
 ├─ src/
 │  ├─ agents/
 │  │  ├─ monitor_agent.py           # Monitor agent (uses Google ADK + tools for policy monitoring)
-│  │  ├─ policy_authorizer_agent.py # Authorizer agent (validates monitored policies)
+│  │  ├─ authorizer_agent.py        # Authorizer agent (validates monitored policies)
 │  │  └─ comparison_agent.py        # Comparison agent (diffs baseline vs authorized snapshot)
 │  ├─ tools/
 │  │  ├─ docs_fetcher.py            # fetch_temp_docs: pulls Google Docs → temp.txt
