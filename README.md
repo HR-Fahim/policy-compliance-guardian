@@ -137,6 +137,10 @@ policy-compliance-guardian/
 │  │  ├─ monitor_agent.py           # Monitor agent (uses Google ADK + tools for policy monitoring)
 │  │  ├─ authorizer_agent.py        # Authorizer agent (validates monitored policies)
 │  │  └─ comparison_agent.py        # Comparison agent (diffs baseline vs authorized snapshot)
+├── mcp-server/                 # MCP server providing interfaces to agents/tools
+│  ├── mcp_server.py
+│  ├── client.py
+│  └── Docker & compose setup
 │  ├─ tools/
 │  │  ├─ docs_fetcher.py            # fetch_temp_docs: pulls Google Docs → temp.txt
 │  │  └─ notifier_tool.py           # Gmail notification, snapshot cleanup, Drive upload/replace
@@ -156,7 +160,7 @@ If you use a different directory layout, adjust the paths in the agents and tool
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/<your-org-or-user>/policy-compliance-guardian.git
+git clone https://github.com/wllnju/policy-compliance-guardian.git
 cd policy-compliance-guardian
 ```
 
