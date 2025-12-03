@@ -55,7 +55,7 @@ You can run this workflow once, or let it run periodically via the scheduler in 
 ### Main flow
 
 1. **Fetch from Google Drive (Docs Fetcher Tool)**
-   - Uses the Google Drive API and OAuth 2.0 credentials.
+   - Uses the Google Drive API and Google OAuth 2.0 service account.
    - Finds a specific folder on Drive (for example, `Test_Documents`).
    - Locates a policy document named `temp.docs` in that folder.
    - Exports the Google Docs file as plain text and writes it to:
