@@ -1,164 +1,199 @@
 import os
-import io, json
+import io
 from pathlib import Path
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
-
-# ======================================================
-# CONFIGURATION
-# ======================================================
-
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-
-CREDENTIALS_FILE = r"Development\policy-compliance-guardian\src\tools\credentials.json"
-TOKEN_FILE = r"Development\policy-compliance-guardian\src\tools\docs_fetcher_token.json"
-
-FOLDER_NAME = "Test_Documents"  
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 
 # ======================================================
-# AUTHENTICATION (ONE-TIME ONLY)
+# SERVICE ACCOUNT CONFIGURATION
+# ======================================================
+
+SERVICE_ACCOUNT_FILE = Path(__file__).parent.parent / "tools" / "service_account.json"
+
+# Full permission required for:
+# - Reading google docs
+# - Creating / updating google docs
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+# Folder that users must SHARE with the service account
+FOLDER_NAME = "Test_Documents"
+
+
+# ======================================================
+# AUTHENTICATION (NO OAUTH POPUP)
 # ======================================================
 
 def get_drive_service():
-    creds = None
+    if not SERVICE_ACCOUNT_FILE.exists():
+        raise FileNotFoundError(
+            f"Service account JSON file missing at {SERVICE_ACCOUNT_FILE}"
+        )
 
-    # Load existing token
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    creds = service_account.Credentials.from_service_account_file(
+        str(SERVICE_ACCOUNT_FILE),
+        scopes=SCOPES
+    )
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            print("Refreshing expired token...")
-            creds.refresh(Request())
-        else:
-            print("Opening OAuth browser login...")
-
-            flow = InstalledAppFlow.from_client_secrets_file(
-                CREDENTIALS_FILE,
-                SCOPES
-            )
-
-            # IMPORTANT: Only once, opens browser popup
-            creds = flow.run_local_server(
-                port=0,
-                open_browser=True,
-                authorization_prompt_message="",
-                success_message="Authentication successful. You may close this window."
-            )
-
-        # Save token so next run does NOT ask again
-        with open(TOKEN_FILE, "w") as token:
-            token.write(creds.to_json())
+    print(f"[AUTH]: Using service account → {creds.service_account_email}")
 
     return build("drive", "v3", credentials=creds)
 
 
 # ======================================================
-# FIND FOLDER BY NAME (FIRST MATCH)
+# FIND FOLDER BY NAME (MUST BE SHARED BY USER)
 # ======================================================
 
-def find_folder_id(drive, folder_name):
-    query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+def find_shared_folder(drive):
+    query = (
+        f"name = '{FOLDER_NAME}' and "
+        f"mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    )
 
-    result = drive.files().list(
-        q=query,
-        fields="files(id, name)"
-    ).execute()
-
+    result = drive.files().list(q=query, fields="files(id, name)").execute()
     folders = result.get("files", [])
 
     if not folders:
-        print(f"Folder '{folder_name}' not found.")
+        print(f"[ERROR]: Folder '{FOLDER_NAME}' not found or not shared with service account.")
         return None
 
-    folder = folders[0]  # first match
-    print(f"Found folder '{folder_name}' → ID = {folder['id']}")
-    return folder["id"]
+    folder_id = folders[0]["id"]
+    print(f"[OK]: Found shared folder '{FOLDER_NAME}' → ID {folder_id}")
+    return folder_id
 
 
 # ======================================================
-# DOWNLOAD ANY DRIVE FILE AS TEXT
-# ======================================================
-
-def download_as_text(drive, file_id, mime):
-    if mime == "application/vnd.google-apps.document":
-        request = drive.files().export_media(fileId=file_id, mimeType="text/plain")
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-
-        fh.seek(0)
-        return fh.read().decode("utf-8")
-
-    else:
-        request = drive.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-
-        fh.seek(0)
-        return fh.read().decode("utf-8", errors="ignore")
-
-
-# ======================================================
-# MAIN FUNCTION — SEARCH FOR temp.docs INSIDE FOLDER
+# FETCH temp.docs → SAVE AS temp.txt
 # ======================================================
 
 def fetch_temp_docs():
-    drive = get_drive_service()
+    """
+    Downloads temp.docs from user's Drive (shared folder)
+    and saves it as temp.txt locally for comparison.
+    """
 
-    folder_id = find_folder_id(drive, FOLDER_NAME)
-    if not folder_id:
-        return
+    try:
+        drive = get_drive_service()
 
-    print("Searching for temp.docs inside:", folder_id)
+        folder_id = find_shared_folder(drive)
+        if not folder_id:
+            return
 
-    query = f"'{folder_id}' in parents and name contains 'temp.docs' and trashed = false"
+        # Find temp.docs inside folder
+        query = (
+            f"'{folder_id}' in parents and "
+            f"name = 'temp.docs' and trashed = false"
+        )
+        result = drive.files().list(
+            q=query,
+            fields="files(id, name, mimeType)"
+        ).execute()
 
-    results = drive.files().list(
-        q=query,
-        fields="files(id, name, mimeType)"
-    ).execute()
+        files = result.get("files", [])
+        if not files:
+            print("[ERROR]: temp.docs not found inside shared folder.")
+            return
 
-    files = results.get("files", [])
+        file_id = files[0]["id"]
+        mime = files[0]["mimeType"]
+        print(f"[FOUND]: temp.docs → ID {file_id}")
 
-    if not files:
-        print("temp.docs not found inside folder.")
-        return
+        # Download file
+        if mime == "application/vnd.google-apps.document":
+            request = drive.files().export_media(
+                fileId=file_id,
+                mimeType="text/plain"
+            )
+        else:
+            request = drive.files().get_media(fileId=file_id)
 
-    f = files[0]
-    file_id = f["id"]
-    mime = f["mimeType"]
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
 
-    print(f"Found file: {f['name']} (ID={file_id}, MIME={mime})")
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
 
-    text = download_as_text(drive, file_id, mime)
+        fh.seek(0)
+        text = fh.read().decode("utf-8", errors="ignore")
 
-    DEFAULT_PATH = Path(__file__).parent.parent
+        # Save to local temp.txt
+        OUTPUT_PATH = Path(__file__).parent.parent / "temp" / "data" / "temp.txt"
+        OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    OUTPUT_PATH = DEFAULT_PATH / "temp" / "data" / "temp.txt"
+        with open(OUTPUT_PATH, "w", encoding="utf-8") as out:
+            out.write(text)
 
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as out:
-        out.write(text)
+        print(f"[OK]: Saved latest temp.docs → {OUTPUT_PATH}")
 
-    print(f"Saved temp.txt successfully at: {OUTPUT_PATH}")
-
+    except Exception as e:
+        print("[ERROR]: fetch_temp_docs() failed:", e)
 
 
 # ======================================================
-# ENTRY POINT
+# UPLOAD NEW temp.txt → REPLACE temp.docs IN DRIVE
 # ======================================================
 
-# if __name__ == "__main__":
-#     fetch_temp_docs()
+def upload_and_replace_temp_docs():
+    print("[Drive] Uploading local temp.txt and replacing temp.docs ...")
+
+    try:
+        drive = get_drive_service()
+
+        folder_id = find_shared_folder(drive)
+        if not folder_id:
+            return
+
+        # Check if temp.docs already exists
+        query = (
+            f"'{folder_id}' in parents and "
+            f"name = 'temp.docs' and trashed = false"
+        )
+        result = drive.files().list(
+            q=query,
+            fields="files(id, name)"
+        ).execute()
+
+        files = result.get("files", [])
+        temp_docs_id = files[0]["id"] if files else None
+
+        if temp_docs_id:
+            print(f"[FOUND]: Existing temp.docs → ID {temp_docs_id}")
+        else:
+            print("[INFO]: temp.docs not found. A new file will be created.")
+
+        # Local file path
+        LOCAL_FILE = Path(__file__).parent.parent / "temp" / "data" / "temp.txt"
+
+        if not LOCAL_FILE.exists():
+            print("[ERROR]: Local temp.txt file not found. Upload aborted.")
+            return
+
+        media = MediaFileUpload(
+            str(LOCAL_FILE),
+            mimetype="text/plain",
+            resumable=True
+        )
+
+        # Replace or create temp.docs
+        if temp_docs_id:
+            drive.files().update(
+                fileId=temp_docs_id,
+                media_body=media
+            ).execute()
+            print("[OK]: temp.docs replaced successfully.")
+        else:
+            metadata = {
+                "name": "temp.docs",
+                "parents": [folder_id]
+            }
+            drive.files().create(
+                body=metadata,
+                media_body=media,
+                fields="id"
+            ).execute()
+            print("[OK]: temp.docs created successfully.")
+
+    except Exception as e:
+        print("[ERROR]: upload_and_replace_temp_docs() failed:", e)
