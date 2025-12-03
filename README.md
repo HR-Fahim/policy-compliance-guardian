@@ -38,9 +38,10 @@ You can run this workflow once, or let it run periodically via the scheduler in 
   - Sends a short Gmail status email at the end of a run (for example, “policy updated” or “no change”).
   - Deletes old monitored and authorized snapshot folders to avoid clutter.
   - Uploads the latest `temp.txt` back to Google Drive as `temp.docs`, closing the loop so users always see the up-to-date, authorized version in Drive.
-- 📆 **Scheduler (optional)**
-  - `main_workflow.py` includes an async loop that can run the full workflow every *N* days.
-  - You can keep this internal scheduler or wrap `full_workflow()` with your own cron / external scheduler.
+- 📆 **Scheduler**
+  - `main_workflow.py` defines:
+    - `full_workflow()` → runs Monitor → Authorizer → Comparison once.
+    - `run_every_n_days(interval_days, full_workflow)` → loops forever, refreshing docs from Drive and calling `full_workflow()` on a cadence controlled by an environment variable.
 
 ---
 
@@ -72,7 +73,7 @@ You can run this workflow once, or let it run periodically via the scheduler in 
 3. **Authorizer Agent**
    - Reads the Monitor Agent’s summary, JSON snapshot, and raw monitored text.
    - Uses a `google_search_agent` again to validate:
-     - Authenticicity of sources.
+     - Authenticity of sources.
      - Correctness and freshness of references.
      - Suspicious or conflicting content.
    - Classifies and decides whether the monitored updates should be accepted.
@@ -104,7 +105,7 @@ You can run this workflow once, or let it run periodically via the scheduler in 
 
 A small utility that integrates with the Google Drive API to pull the policy source document into the local workflow.
 
-- Uses OAuth 2.0 with a `credentials.json` and a cached token file (Drive scope).
+- Uses a **service account** with `service_account.json` (Drive scope) via `google.oauth2.service_account`.
 - Searches for a configured folder on Drive (for example `Test_Documents`).
 - Searches that folder for a file named `temp.docs`.
 - Exports the Google Docs file as plain text and writes it to:
@@ -192,14 +193,25 @@ WORKFLOW_RUN_INTERVAL_DAYS=7
 
 ### 4. Google OAuth credentials
 
-Depending on your configuration, you will typically need:
+This project uses **two types of Google credentials**:
 
-- A `credentials.json` file for Google APIs (Drive and Gmail).
-- Token files created on first run (for example in `src/tools/`):
-  - `docs_fetcher_token.json` for Drive.
-  - `notifier_token.json` for Gmail.
+1. **Service account for Google Drive (used by `docs_fetcher.py`)**
+   - A **service account key JSON** file saved as:
+     ```text
+     src/tools/service_account.json
+     ```
+   - The Drive folder (for example `Test_Documents`) must be **shared with the service account email** with at least Editor access.
+   - `docs_fetcher.py` uses this file (via `google.oauth2.service_account`) to read from and write to Google Drive **without** any OAuth browser popup.
 
-Make sure these files are **not** committed to Git. Add them to `.gitignore`.
+2. **User OAuth for Gmail (used by `notifier_tool.py`)**
+   - An OAuth **`credentials.json`** file (Desktop application) downloaded from Google Cloud Console.
+   - A cached token file created on first run:
+     ```text
+     src/tools/notifier_token.json
+     ```
+   - `notifier_tool.py` uses these (via `InstalledAppFlow` and `google.oauth2.credentials.Credentials`) to send email using the Gmail API.
+
+Make sure all of these JSON/token files are **not** committed to Git. Add them to `.gitignore`.
 
 ---
 
@@ -264,7 +276,7 @@ Your external scheduler can then trigger that wrapper script on whatever cadence
 
 ## 🔐 Handling Credentials Safely
 
-- **Never** commit `credentials.json`, token files, or `.env` to version control.
+- **Never** commit `credentials.json` and `service_account.json`, token files, or `.env` to version control.
 - Use `.gitignore` to keep secrets and local artifacts out of Git.
 - If you accidentally commit a secret:
   1. Rotate or revoke it in the Google Cloud Console / Google Account.
