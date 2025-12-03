@@ -7,6 +7,7 @@
 credentials.json
 docs_fetcher_token.json
 notifier_token.json
+service_account.json
 **/.DS_Store
 **/__pycache__
 **/.venv
