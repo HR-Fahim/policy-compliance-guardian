@@ -137,10 +137,10 @@ policy-compliance-guardian/
 │  │  ├─ monitor_agent.py           # Monitor agent (uses Google ADK + tools for policy monitoring)
 │  │  ├─ authorizer_agent.py        # Authorizer agent (validates monitored policies)
 │  │  └─ comparison_agent.py        # Comparison agent (diffs baseline vs authorized snapshot)
-├── mcp-server/                 # MCP server providing interfaces to agents/tools
-│  ├── mcp_server.py
-│  ├── client.py
-│  └── Docker & compose setup
+│  ├── mcp-server/                 # MCP server providing interfaces to agents/tools
+│  │  ├── mcp_server.py
+│  │  ├── client.py
+│  │  └── Docker & compose setup
 │  ├─ tools/
 │  │  ├─ docs_fetcher.py            # fetch_temp_docs: pulls Google Docs → temp.txt
 │  │  └─ notifier_tool.py           # Gmail notification, snapshot cleanup, Drive upload/replace
